@@ -1,2 +1,7 @@
-# Smart-AI-Tutor-v2-Multi-Agent-Design-and-Faculty-Features
-Smart AI Tutor for University Students: A Multi-Agent, Course-Grounded Learning Platform
+# Smart AI Tutor v2
+Multi-agent tutor with Teacher and Student portals (Streamlit + Groq).
+
+Run locally:
+    pip install -r requirements.txt
+    copy .streamlit/secrets.toml.example to .streamlit/secrets.toml and add your key
+    streamlit run app.py
