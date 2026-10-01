@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS docs(id INTEGER PRIMARY KEY, course_id INTEGER, name 
 CREATE TABLE IF NOT EXISTS chunks(id INTEGER PRIMARY KEY, course_id INTEGER, source TEXT, page INTEGER, text TEXT);
 CREATE TABLE IF NOT EXISTS quizzes(id INTEGER PRIMARY KEY, course_id INTEGER, topic TEXT, data TEXT, approved INTEGER DEFAULT 0);
 CREATE TABLE IF NOT EXISTS attempts(id INTEGER PRIMARY KEY, user_id INTEGER, course_id INTEGER, topic TEXT, correct INTEGER, total INTEGER);
+CREATE TABLE IF NOT EXISTS papers(id INTEGER PRIMARY KEY, course_id INTEGER, title TEXT, authors TEXT, year INTEGER, venue TEXT, url TEXT, pdf TEXT, added_by INTEGER);
 CREATE TABLE IF NOT EXISTS chats(id INTEGER PRIMARY KEY, user_id INTEGER, course_id INTEGER, question TEXT, grounded INTEGER);
 """)
         for col in ("full_name", "enrollment_no"):      # migration for older databases
