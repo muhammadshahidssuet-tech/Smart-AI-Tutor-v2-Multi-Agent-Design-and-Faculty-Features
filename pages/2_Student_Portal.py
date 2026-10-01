@@ -69,14 +69,26 @@ with t2:
                 st.write(f"**Q{i+1}** {'✅' if ans[i] == qn['answer'] else '❌'} {qn['explanation']}")
 
 with t3:
-    a = db.q("""SELECT topic, SUM(correct) c, SUM(total) t FROM attempts
-                WHERE user_id=? AND course_id=? GROUP BY topic""", (u["id"], course["id"]))
+    att = db.q("SELECT topic, correct, total FROM attempts WHERE user_id=? AND course_id=? ORDER BY id",
+               (u["id"], course["id"]))
     n = db.q("SELECT COUNT(*) n FROM chats WHERE user_id=? AND course_id=?", (u["id"], course["id"]))[0]["n"]
-    st.metric("Questions asked", n)
-    if a:
-        df = pd.DataFrame(a); df["mastery %"] = (df.c / df.t * 100).round(1)
-        st.bar_chart(df.set_index("topic")["mastery %"])
-        weak = df[df["mastery %"] < 60].topic.tolist()
+    tot = sum(a["total"] for a in att); cor = sum(a["correct"] for a in att)
+
+    m1, m2, m3 = st.columns(3)
+    m1.metric("Questions asked", n)
+    m2.metric("Quizzes taken", len(att))
+    m3.metric("Average score", f"{cor / tot * 100:.0f}%" if tot else "-")
+
+    if att:
+        df = pd.DataFrame(att)
+        df["score %"] = (df["correct"] / df["total"] * 100).round(1)
+        st.subheader("Mastery by topic")
+        m = df.groupby("topic").agg(c=("correct", "sum"), t=("total", "sum")).reset_index()
+        m["mastery %"] = (m["c"] / m["t"] * 100).round(1)
+        st.bar_chart(m.set_index("topic")["mastery %"])
+        st.subheader("Score trend")
+        st.line_chart(df["score %"].reset_index(drop=True))
+        weak = m[m["mastery %"] < 60]["topic"].tolist()
         st.info("Focus on: " + ", ".join(weak) if weak else "Great work, no weak topics!")
     else:
-        st.caption("Take a quiz to see your mastery.")
+        st.info("Take and submit a quiz in the Quizzes tab to see your progress here.")
