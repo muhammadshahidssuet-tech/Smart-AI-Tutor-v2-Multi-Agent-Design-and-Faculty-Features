@@ -39,7 +39,7 @@ courses = db.q("""SELECT c.*, COALESCE(t.full_name, t.username) AS teacher
                   FROM courses c JOIN enrollments e ON e.course_id=c.id
                   JOIN users t ON t.id=c.teacher_id WHERE e.user_id=?""", (u["id"],))
 if not courses:
-    st.info("Join a course using the code from your teacher."); st.stop()
+    st.info("Join a course using the code from your faculty."); st.stop()
 
 course = st.sidebar.selectbox("Course", courses, format_func=lambda c: f"{c['name']} ({c['teacher']})")
 st.sidebar.caption(f"👩‍🏫 Instructor: **{course['teacher']}**")
@@ -48,7 +48,7 @@ st.info(f"📘 **{course['name']}**  |  Instructor: **{course['teacher']}**  |  
 mode = st.sidebar.radio("Tutor mode", ["Simple", "Step-by-step", "Socratic"])
 lang = st.sidebar.selectbox("Language", ["English", "Urdu", "Roman Urdu"])
 
-t1, t2, t3 = st.tabs(["💬 Tutor Chat", "📝 Quizzes", "📊 My Progress"])
+t1, t2, t3, t4 = st.tabs(["💬 Tutor Chat", "📝 Quizzes", "📊 My Progress", "📚 Reading List"])
 
 with t1:
     key = f"hist_{course['id']}"
@@ -134,3 +134,15 @@ with t3:
         st.info("Focus on: " + ", ".join(weak) if weak else "Great work, no weak topics!")
     else:
         st.info("Take and submit a quiz in the Quizzes tab to see your progress here.")
+
+with t4:
+    st.subheader("Recommended research papers")
+    lst = db.q("SELECT * FROM papers WHERE course_id=? ORDER BY id DESC", (course["id"],))
+    if not lst:
+        st.info("Your faculty has not added any papers yet.")
+    for r in lst:
+        with st.container(border=True):
+            st.markdown(f"**[{r['title']}]({r['url']})**")
+            st.caption(f"{r['authors']} · {r['year']}" + (f" · {r['venue']}" if r["venue"] else ""))
+            if r["pdf"]:
+                st.link_button("PDF", r["pdf"])
