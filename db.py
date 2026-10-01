@@ -29,6 +29,15 @@ CREATE TABLE IF NOT EXISTS chats(id INTEGER PRIMARY KEY, user_id INTEGER, course
                 c.execute(f"ALTER TABLE users ADD COLUMN {col} TEXT")
             except sqlite3.OperationalError:
                 pass
+        for col in ("quiz_id INTEGER", "answers TEXT"):  # one attempt per quiz
+            try:
+                c.execute(f"ALTER TABLE attempts ADD COLUMN {col}")
+                if col.startswith("quiz_id"):            # link older attempts to their quiz by topic
+                    c.execute("""UPDATE attempts SET quiz_id=(SELECT id FROM quizzes
+                                 WHERE quizzes.course_id=attempts.course_id
+                                 AND quizzes.topic=attempts.topic LIMIT 1)""")
+            except sqlite3.OperationalError:
+                pass
 
 def hp(p): return hashlib.sha256(p.encode()).hexdigest()
 def code(): return "".join(random.choices(string.ascii_uppercase + string.digits, k=6))
