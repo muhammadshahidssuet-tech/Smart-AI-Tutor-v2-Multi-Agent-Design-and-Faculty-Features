@@ -11,6 +11,21 @@ if not u or u["role"] != "student":
 ui.header("Student Portal: learn, practice and track progress", u)
 ui.sidebar_brand(u)
 
+if not u.get("enrollment_no") or not u.get("full_name"):
+    st.subheader("Complete your profile")
+    fn = st.text_input("Full name", value=u.get("full_name") or "")
+    en = st.text_input("Enrollment number")
+    if st.button("Save profile"):
+        if not (fn.strip() and en.strip()):
+            st.error("Both fields are required.")
+        elif db.q("SELECT id FROM users WHERE enrollment_no=? AND id!=?", (en.strip(), u["id"])):
+            st.error("This enrollment number is already registered.")
+        else:
+            db.run("UPDATE users SET full_name=?, enrollment_no=? WHERE id=?", (fn.strip(), en.strip(), u["id"]))
+            st.session_state.user = db.q("SELECT * FROM users WHERE id=?", (u["id"],))[0]
+            st.rerun()
+    st.stop()
+
 with st.sidebar.expander("➕ Join a course"):
     code = st.text_input("Course code").upper().strip()
     if st.button("Join"):
@@ -20,12 +35,16 @@ with st.sidebar.expander("➕ Join a course"):
         else:
             st.error("Invalid code")
 
-courses = db.q("""SELECT c.* FROM courses c JOIN enrollments e ON e.course_id=c.id
-                  WHERE e.user_id=?""", (u["id"],))
+courses = db.q("""SELECT c.*, COALESCE(t.full_name, t.username) AS teacher
+                  FROM courses c JOIN enrollments e ON e.course_id=c.id
+                  JOIN users t ON t.id=c.teacher_id WHERE e.user_id=?""", (u["id"],))
 if not courses:
     st.info("Join a course using the code from your teacher."); st.stop()
 
-course = st.sidebar.selectbox("Course", courses, format_func=lambda c: c["name"])
+course = st.sidebar.selectbox("Course", courses, format_func=lambda c: f"{c['name']} ({c['teacher']})")
+st.sidebar.caption(f"👩‍🏫 Instructor: **{course['teacher']}**")
+st.info(f"📘 **{course['name']}**  |  Instructor: **{course['teacher']}**  |  "
+        f"Student: **{u['full_name']}** ({u['enrollment_no']})")
 mode = st.sidebar.radio("Tutor mode", ["Simple", "Step-by-step", "Socratic"])
 lang = st.sidebar.selectbox("Language", ["English", "Urdu", "Roman Urdu"])
 
