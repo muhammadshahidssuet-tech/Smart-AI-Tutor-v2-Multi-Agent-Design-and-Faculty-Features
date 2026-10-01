@@ -27,3 +27,23 @@ CREATE TABLE IF NOT EXISTS chats(id INTEGER PRIMARY KEY, user_id INTEGER, course
 
 def hp(p): return hashlib.sha256(p.encode()).hexdigest()
 def code(): return "".join(random.choices(string.ascii_uppercase + string.digits, k=6))
+def seed_demo(course_id):
+    """Fill a course with demo students, quiz attempts and questions."""
+    import random
+    topics = ["Basics", "Normalization", "SQL Joins", "Indexing"]
+    qs = ["What is normalization?", "Explain SQL joins", "What is a primary key?",
+          "What is normalization?", "How does indexing work?", "Explain SQL joins"]
+    for i in range(1, 6):
+        name = f"demo_student{i}"
+        r = q("SELECT id FROM users WHERE username=?", (name,))
+        uid = r[0]["id"] if r else run(
+            "INSERT INTO users(username,pw,role) VALUES(?,?,?)",
+            (name, hp("demo"), "student"))
+        run("INSERT OR IGNORE INTO enrollments VALUES(?,?)", (uid, course_id))
+        for t in topics:
+            base = 0.35 if t == "Normalization" else 0.8
+            run("INSERT INTO attempts(user_id,course_id,topic,correct,total) VALUES(?,?,?,?,?)",
+                (uid, course_id, t, sum(random.random() < base for _ in range(5)), 5))
+        for question in random.sample(qs, 4):
+            run("INSERT INTO chats(user_id,course_id,question,grounded) VALUES(?,?,?,1)",
+                (uid, course_id, question))
