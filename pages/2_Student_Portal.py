@@ -71,21 +71,44 @@ with t1:
 
 with t2:
     quizzes = db.q("SELECT * FROM quizzes WHERE course_id=? AND approved=1", (course["id"],))
+    done = {r["quiz_id"]: r for r in db.q(
+        "SELECT * FROM attempts WHERE user_id=? AND quiz_id IS NOT NULL", (u["id"],))}
     if not quizzes:
         st.info("No published quizzes yet.")
     else:
-        z = st.selectbox("Quiz", quizzes, format_func=lambda z: z["topic"])
-        qs = json.loads(z["data"]); ans = {}
-        for i, qn in enumerate(qs):
-            ch = st.radio(f"{i+1}. {qn['q']}", qn["options"], index=None, key=f"q{z['id']}_{i}")
-            ans[i] = qn["options"].index(ch) if ch else None
-        if st.button("Submit"):
-            c, t = agents.grade(qs, ans)
-            db.run("INSERT INTO attempts(user_id,course_id,topic,correct,total) VALUES(?,?,?,?,?)",
-                   (u["id"], course["id"], z["topic"], c, t))
-            st.success(f"Score: {c}/{t}")
+        z = st.selectbox("Quiz", quizzes, format_func=lambda z:
+                         f"{z['topic']}  -  {'✅ Completed' if z['id'] in done else '🆕 Not attempted'}")
+        qs = json.loads(z["data"])
+        if z["id"] in done:
+            r = done[z["id"]]
+            st.success(f"You have already completed this quiz. Your score: {r['correct']}/{r['total']}. "
+                       "Each quiz can be attempted only once.")
+            saved = json.loads(r["answers"] or "{}")
+            with st.expander("Review your answers"):
+                for i, qn in enumerate(qs):
+                    pick = saved.get(str(i))
+                    st.write(f"**Q{i+1}. {qn['q']}** {'✅' if pick == qn['answer'] else '❌'}")
+                    st.write("Your answer: " + (qn["options"][pick] if pick is not None else "Not answered"))
+                    st.write("Correct answer: " + qn["options"][qn["answer"]])
+                    st.caption(qn["explanation"])
+        else:
+            st.warning("You can submit this quiz only once. Answer carefully.")
+            ans = {}
             for i, qn in enumerate(qs):
-                st.write(f"**Q{i+1}** {'✅' if ans[i] == qn['answer'] else '❌'} {qn['explanation']}")
+                ch = st.radio(f"{i+1}. {qn['q']}", qn["options"], index=None, key=f"q{z['id']}_{i}")
+                ans[i] = qn["options"].index(ch) if ch else None
+            if st.button("Submit quiz (final)"):
+                if any(v is None for v in ans.values()):
+                    st.error("Please answer all questions before submitting.")
+                elif db.q("SELECT 1 FROM attempts WHERE user_id=? AND quiz_id=?", (u["id"], z["id"])):
+                    st.error("You have already submitted this quiz.")
+                else:
+                    c, t = agents.grade(qs, ans)
+                    db.run("INSERT INTO attempts(user_id,course_id,topic,correct,total,quiz_id,answers) "
+                           "VALUES(?,?,?,?,?,?,?)",
+                           (u["id"], course["id"], z["topic"], c, t, z["id"],
+                            json.dumps({str(k): v for k, v in ans.items()})))
+                    st.rerun()
 
 with t3:
     att = db.q("SELECT topic, correct, total FROM attempts WHERE user_id=? AND course_id=? ORDER BY id",
