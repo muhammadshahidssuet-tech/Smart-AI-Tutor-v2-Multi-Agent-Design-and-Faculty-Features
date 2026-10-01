@@ -88,7 +88,7 @@ with t3:
         df["accuracy %"] = (df["correct"] / df["total"] * 100).round(1)
         st.subheader("Accuracy by topic")
         st.bar_chart(df.set_index("topic")["accuracy %"])
-        st.dataframe(df, use_container_width=True, hide_index=True)
+        st.dataframe(df, width="stretch", hide_index=True)
         weak = df[df["accuracy %"] < 60]["topic"].tolist()
         if weak:
             st.warning("Weak topics to re-teach: " + ", ".join(weak))
@@ -121,7 +121,7 @@ with t3:
                          "Avg Score %": avg if avg is not None else "-",
                          "Weakest Topic": weakest, "Status": status})
         sdf = pd.DataFrame(rows)
-        st.dataframe(sdf, use_container_width=True, hide_index=True)
+        st.dataframe(sdf, width="stretch", hide_index=True)
         st.download_button("Export student report (CSV)", sdf.to_csv(index=False), "student_report.csv")
     else:
         st.info("No students have joined yet. Share the join code from the sidebar.")
@@ -144,7 +144,7 @@ with t3:
                 sty = (sty.map if hasattr(sty, "map") else sty.applymap)(colour, subset=qcols)
             except Exception:
                 sty = rep
-            st.dataframe(sty, use_container_width=True, hide_index=True, column_config={
+            st.dataframe(sty, width="stretch", hide_index=True, column_config={
                 "Percentage": st.column_config.ProgressColumn("Score", min_value=0, max_value=100, format="%d%%")})
             d1, d2 = st.columns(2)
             d1.download_button("⬇ Download CSV report", reports.to_csv(rep),
@@ -157,7 +157,7 @@ with t3:
         qs = pd.Series([c["question"] for c in chats]).value_counts().head(10).reset_index()
         qs.columns = ["Question", "Times asked"]
         st.subheader("Most-asked questions")
-        st.dataframe(qs, use_container_width=True, hide_index=True)
+        st.dataframe(qs, width="stretch", hide_index=True)
 
 with t4:
     st.subheader("Research paper search")
