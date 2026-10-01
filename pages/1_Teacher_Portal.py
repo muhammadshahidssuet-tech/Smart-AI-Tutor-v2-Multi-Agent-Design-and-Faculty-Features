@@ -1,5 +1,5 @@
 import json, streamlit as st, pandas as pd
-import db, agents, ui
+import db, agents, ui, reports
 
 ui.setup("Teacher")
 
@@ -125,6 +125,33 @@ with t3:
         st.download_button("Export student report (CSV)", sdf.to_csv(index=False), "student_report.csv")
     else:
         st.info("No students have joined yet. Share the join code from the sidebar.")
+
+    st.subheader("Quiz result report")
+    pub = db.q("SELECT * FROM quizzes WHERE course_id=? AND approved=1", (course["id"],))
+    if not pub:
+        st.info("Publish a quiz to generate a result report.")
+    else:
+        zq = st.selectbox("Select quiz", pub, format_func=lambda z: z["topic"], key="rep_quiz")
+        rep = reports.build_report(course["id"], zq)
+        if rep.empty:
+            st.info("No students have joined this course yet.")
+        else:
+            qcols = [c for c in rep.columns if c.startswith("Q") and c[1:].isdigit()]
+            colour = lambda v: ("background-color:#C6EFCE" if v == "Correct"
+                                else "background-color:#FFC7CE" if v == "Wrong" else "")
+            try:
+                sty = rep.style
+                sty = (sty.map if hasattr(sty, "map") else sty.applymap)(colour, subset=qcols)
+            except Exception:
+                sty = rep
+            st.dataframe(sty, use_container_width=True, hide_index=True, column_config={
+                "Percentage": st.column_config.ProgressColumn("Score", min_value=0, max_value=100, format="%d%%")})
+            d1, d2 = st.columns(2)
+            d1.download_button("⬇ Download CSV report", reports.to_csv(rep),
+                               f"quiz_report_{zq['topic']}.csv", "text/csv")
+            d2.download_button("⬇ Download Excel report (colored)", reports.to_excel(rep),
+                               f"quiz_report_{zq['topic']}.xlsx",
+                               "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
     if chats:
         qs = pd.Series([c["question"] for c in chats]).value_counts().head(10).reset_index()
