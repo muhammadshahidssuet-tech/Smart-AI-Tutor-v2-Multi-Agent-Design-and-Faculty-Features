@@ -11,6 +11,15 @@ if not u or u["role"] != "teacher":
 ui.header("Teacher Portal: manage courses, materials and insights", u)
 ui.sidebar_brand(u)
 
+if not u.get("full_name"):
+    st.subheader("Complete your profile")
+    fn = st.text_input("Your full name (shown to students)")
+    if st.button("Save profile") and fn.strip():
+        db.run("UPDATE users SET full_name=? WHERE id=?", (fn.strip(), u["id"]))
+        st.session_state.user = db.q("SELECT * FROM users WHERE id=?", (u["id"],))[0]
+        st.rerun()
+    st.stop()
+
 with st.sidebar.expander("➕ Create course"):
     name = st.text_input("Course name")
     if st.button("Create") and name:
@@ -62,7 +71,7 @@ with t2:
 
 with t3:
     att = db.q("SELECT user_id, topic, correct, total FROM attempts WHERE course_id=?", (course["id"],))
-    chats = db.q("SELECT question, grounded FROM chats WHERE course_id=?", (course["id"],))
+    chats = db.q("SELECT user_id, question, grounded FROM chats WHERE course_id=?", (course["id"],))
     enrolled = db.q("SELECT COUNT(*) n FROM enrollments WHERE course_id=?", (course["id"],))[0]["n"]
     tot = sum(a["total"] for a in att); cor = sum(a["correct"] for a in att)
 
@@ -89,6 +98,33 @@ with t3:
     else:
         st.info("No quiz attempts yet. Students must submit an approved quiz. "
                 "Or click 'Load demo data' in the sidebar to preview this dashboard.")
+
+    st.subheader("Student performance")
+    studs = db.q("""SELECT u.id, COALESCE(u.full_name, u.username) AS name,
+                           COALESCE(u.enrollment_no, '-') AS enrollment
+                    FROM enrollments e JOIN users u ON u.id = e.user_id
+                    WHERE e.course_id=? ORDER BY u.enrollment_no""", (course["id"],))
+    if studs:
+        rows = []
+        for s_ in studs:
+            mine = [a for a in att if a["user_id"] == s_["id"]]
+            t_ = sum(a["total"] for a in mine); c_ = sum(a["correct"] for a in mine)
+            avg = round(c_ / t_ * 100) if t_ else None
+            per = {}
+            for a in mine:
+                x = per.setdefault(a["topic"], [0, 0]); x[0] += a["correct"]; x[1] += a["total"]
+            weakest = min(per, key=lambda k: per[k][0] / per[k][1]) if per else "-"
+            asked = sum(1 for c in chats if c["user_id"] == s_["id"])
+            status = "No activity" if (not mine and not asked) else ("At risk" if avg is not None and avg < 50 else "On track")
+            rows.append({"Student Name": s_["name"], "Enrollment No.": s_["enrollment"],
+                         "Questions Asked": asked, "Quizzes Taken": len(mine),
+                         "Avg Score %": avg if avg is not None else "-",
+                         "Weakest Topic": weakest, "Status": status})
+        sdf = pd.DataFrame(rows)
+        st.dataframe(sdf, use_container_width=True, hide_index=True)
+        st.download_button("Export student report (CSV)", sdf.to_csv(index=False), "student_report.csv")
+    else:
+        st.info("No students have joined yet. Share the join code from the sidebar.")
 
     if chats:
         qs = pd.Series([c["question"] for c in chats]).value_counts().head(10).reset_index()
