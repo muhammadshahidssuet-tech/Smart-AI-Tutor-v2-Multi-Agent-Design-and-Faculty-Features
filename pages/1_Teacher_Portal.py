@@ -23,6 +23,8 @@ if not courses:
 
 course = st.sidebar.selectbox("Course", courses, format_func=lambda c: f"{c['name']} ({c['code']})")
 st.sidebar.caption(f"Student join code: **{course['code']}**")
+if st.sidebar.button("Load demo data"):
+    db.seed_demo(course["id"]); st.rerun()
 strict = st.sidebar.toggle("Strict mode (course material only)", bool(course["strict"]))
 db.run("UPDATE courses SET strict=? WHERE id=?", (int(strict), course["id"]))
 
@@ -44,9 +46,12 @@ with t2:
     topic = st.text_input("Quiz topic")
     if st.button("Generate quiz draft") and topic:
         with st.spinner("Quiz Agent working..."):
-            qs = agents.make_quiz(course["id"], topic)
-            db.run("INSERT INTO quizzes(course_id,topic,data) VALUES(?,?,?)",
-                   (course["id"], topic, json.dumps(qs)))
+            try:
+                qs = agents.make_quiz(course["id"], topic)
+                db.run("INSERT INTO quizzes(course_id,topic,data) VALUES(?,?,?)",
+                       (course["id"], topic, json.dumps(qs)))
+            except Exception as e:
+                st.error(f"Could not generate quiz. Upload material first, then retry. ({e})")
     for z in db.q("SELECT * FROM quizzes WHERE course_id=?", (course["id"],)):
         with st.expander(f"{z['topic']} — {'✅ Approved' if z['approved'] else '⏳ Draft'}"):
             for i, qn in enumerate(json.loads(z["data"]), 1):
@@ -56,17 +61,37 @@ with t2:
                 db.run("UPDATE quizzes SET approved=1 WHERE id=?", (z["id"],)); st.rerun()
 
 with t3:
-    a = db.q("""SELECT topic, SUM(correct) c, SUM(total) t, COUNT(DISTINCT user_id) students
-                FROM attempts WHERE course_id=? GROUP BY topic""", (course["id"],))
-    if a:
-        df = pd.DataFrame(a); df["accuracy %"] = (df.c / df.t * 100).round(1)
-        st.dataframe(df, use_container_width=True)
+    att = db.q("SELECT user_id, topic, correct, total FROM attempts WHERE course_id=?", (course["id"],))
+    chats = db.q("SELECT question, grounded FROM chats WHERE course_id=?", (course["id"],))
+    enrolled = db.q("SELECT COUNT(*) n FROM enrollments WHERE course_id=?", (course["id"],))[0]["n"]
+    tot = sum(a["total"] for a in att); cor = sum(a["correct"] for a in att)
+
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Students enrolled", enrolled)
+    m2.metric("Questions asked", len(chats))
+    m3.metric("Quiz attempts", len(att))
+    m4.metric("Average score", f"{cor / tot * 100:.0f}%" if tot else "-")
+
+    if att:
+        df = (pd.DataFrame(att).groupby("topic")
+              .agg(correct=("correct", "sum"), total=("total", "sum"), students=("user_id", "nunique"))
+              .reset_index())
+        df["accuracy %"] = (df["correct"] / df["total"] * 100).round(1)
+        st.subheader("Accuracy by topic")
         st.bar_chart(df.set_index("topic")["accuracy %"])
-        st.warning("Weak topics: " + ", ".join(df[df["accuracy %"] < 60].topic) or "none")
+        st.dataframe(df, use_container_width=True, hide_index=True)
+        weak = df[df["accuracy %"] < 60]["topic"].tolist()
+        if weak:
+            st.warning("Weak topics to re-teach: " + ", ".join(weak))
+        else:
+            st.success("No weak topics found.")
         st.download_button("Export CSV", df.to_csv(index=False), "class_report.csv")
     else:
-        st.info("No quiz attempts yet.")
-    qs = db.q("SELECT question, COUNT(*) n FROM chats WHERE course_id=? GROUP BY question ORDER BY n DESC LIMIT 10",
-              (course["id"],))
-    st.subheader("Most-asked questions")
-    st.table(pd.DataFrame(qs)) if qs else st.caption("No questions yet.")
+        st.info("No quiz attempts yet. Students must submit an approved quiz. "
+                "Or click 'Load demo data' in the sidebar to preview this dashboard.")
+
+    if chats:
+        qs = pd.Series([c["question"] for c in chats]).value_counts().head(10).reset_index()
+        qs.columns = ["Question", "Times asked"]
+        st.subheader("Most-asked questions")
+        st.dataframe(qs, use_container_width=True, hide_index=True)
