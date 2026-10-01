@@ -24,7 +24,11 @@ def setup(title="", icon="🎓", wide=True):
     st.markdown(CSS, unsafe_allow_html=True)
 
 def header(subtitle, user=None):
-    who = f"<span class='pill'>{user['username']} · {user['role']}</span>" if user else ""
+    who = ""
+    if user:
+        name = user.get("full_name") or user["username"]
+        extra = f" · {user['enrollment_no']}" if user.get("enrollment_no") else ""
+        who = f"<span class='pill'>{name}{extra} · {user['role']}</span>"
     st.markdown(f"<div class='brand-bar'><div><h1>🎓 {BRAND}</h1>"
                 f"<span>{subtitle}</span></div>{who}</div>", unsafe_allow_html=True)
 
