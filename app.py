@@ -8,8 +8,8 @@ ui.sidebar_brand(st.session_state.get("user"))
 
 if "user" in st.session_state:
     u = st.session_state.user
-    st.success(f"Logged in as **{u['username']}** ({u['role']})")
-    page = "Teacher Portal" if u["role"] == "teacher" else "Student Portal"
+    st.success(f"Logged in as **{u['username']}** ({'faculty' if u['role'] == 'teacher' else u['role']})")
+    page = "Faculty Portal" if u["role"] == "teacher" else "Student Portal"
     st.info(f"Open **{page}** from the left sidebar.")
     st.stop()
 
@@ -25,7 +25,7 @@ with login:
             st.error("Wrong username or password")
 with reg:
     full = st.text_input("Full name", key="rf")
-    role = st.selectbox("I am a", ["student", "teacher"])
+    role = st.selectbox("I am a", ["student", "teacher"], format_func=lambda r: "Faculty" if r == "teacher" else "Student")
     enr = st.text_input("Enrollment number", key="re") if role == "student" else ""
     un = st.text_input("Choose username", key="ru")
     pw = st.text_input("Choose password", type="password", key="rp")
