@@ -24,12 +24,20 @@ with login:
         else:
             st.error("Wrong username or password")
 with reg:
+    full = st.text_input("Full name", key="rf")
+    role = st.selectbox("I am a", ["student", "teacher"])
+    enr = st.text_input("Enrollment number", key="re") if role == "student" else ""
     un = st.text_input("Choose username", key="ru")
     pw = st.text_input("Choose password", type="password", key="rp")
-    role = st.selectbox("I am a", ["student", "teacher"])
     if st.button("Create account"):
-        try:
-            db.run("INSERT INTO users(username,pw,role) VALUES(?,?,?)", (un, db.hp(pw), role))
-            st.success("Account created. Go to the Login tab.")
-        except Exception:
-            st.error("Username already taken")
+        if not (full.strip() and un.strip() and pw) or (role == "student" and not enr.strip()):
+            st.error("Please fill in all fields.")
+        elif role == "student" and db.q("SELECT id FROM users WHERE enrollment_no=?", (enr.strip(),)):
+            st.error("This enrollment number is already registered.")
+        else:
+            try:
+                db.run("INSERT INTO users(username,pw,role,full_name,enrollment_no) VALUES(?,?,?,?,?)",
+                       (un.strip(), db.hp(pw), role, full.strip(), enr.strip() or None))
+                st.success("Account created. Go to the Login tab.")
+            except Exception:
+                st.error("Username already taken")
