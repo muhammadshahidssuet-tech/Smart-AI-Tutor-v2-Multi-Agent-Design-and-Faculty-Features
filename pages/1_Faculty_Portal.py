@@ -1,14 +1,14 @@
 import json, streamlit as st, pandas as pd
-import db, agents, ui, reports
+import db, agents, ui, reports, scholar
 
-ui.setup("Teacher")
+ui.setup("Faculty")
 
 db.init()
 u = st.session_state.get("user")
 if not u or u["role"] != "teacher":
-    st.warning("Please log in as a teacher on the main page."); st.stop()
+    st.warning("Please log in as faculty on the main page."); st.stop()
 
-ui.header("Teacher Portal: manage courses, materials and insights", u)
+ui.header("Faculty Portal: manage courses, materials, research and insights", u)
 ui.sidebar_brand(u)
 
 if not u.get("full_name"):
@@ -37,7 +37,7 @@ if st.sidebar.button("Load demo data"):
 strict = st.sidebar.toggle("Strict mode (course material only)", bool(course["strict"]))
 db.run("UPDATE courses SET strict=? WHERE id=?", (int(strict), course["id"]))
 
-t1, t2, t3 = st.tabs(["📂 Materials", "📝 Quiz Approval", "📊 Class Analytics"])
+t1, t2, t3, t4 = st.tabs(["📂 Materials", "📝 Quiz Approval", "📊 Class Analytics", "🔎 Research Papers"])
 
 with t1:
     files = st.file_uploader("Upload lectures (PDF, PPTX, DOCX, TXT)", accept_multiple_files=True,
@@ -158,3 +158,61 @@ with t3:
         qs.columns = ["Question", "Times asked"]
         st.subheader("Most-asked questions")
         st.dataframe(qs, use_container_width=True, hide_index=True)
+
+with t4:
+    st.subheader("Research paper search")
+    st.caption("Free search across OpenAlex (250M+ works) and arXiv. No API key needed.")
+    c1, c2 = st.columns([3, 1])
+    query = c1.text_input("Topic, keywords or paper title", key="ps_q", placeholder="e.g. database normalization")
+    src = c2.selectbox("Source", ["OpenAlex + arXiv", "OpenAlex", "arXiv"], key="ps_src")
+    f1, f2, f3, f4 = st.columns(4)
+    sort = f1.selectbox("Sort by", ["Relevance", "Most cited", "Newest"], key="ps_sort")
+    yfrom = f2.number_input("From year", 1990, 2026, 2018, key="ps_year")
+    oa = f3.checkbox("Open access only", key="ps_oa")
+    n = f4.slider("Results per source", 5, 25, 10, key="ps_n")
+    if st.button("Search papers", type="primary") and query.strip():
+        with st.spinner("Searching..."):
+            st.session_state.papers, st.session_state.perrs = scholar.search(query.strip(), src, sort, yfrom, oa, n)
+    for e in st.session_state.get("perrs", []):
+        st.warning(e + ". Try again in a moment or switch the source.")
+    found = st.session_state.get("papers")
+    if found is not None:
+        st.write(f"**{len(found)} papers found**")
+        if found:
+            st.download_button("Export results (CSV)", pd.DataFrame(found).drop(columns=["abstract"]).to_csv(index=False),
+                               "papers.csv", key="ps_csv")
+    for i, p in enumerate(found or []):
+        with st.container(border=True):
+            st.markdown(f"**[{p['title'].replace('[', '(').replace(']', ')')}]({p['url']})**")
+            meta = f"{p['authors']} · {p['year']}" + (f" · *{p['venue']}*" if p["venue"] else "")
+            st.caption(meta)
+            tags = [f"📚 {p['source']}"]
+            if p["citations"] is not None:
+                tags.append(f"🔗 {p['citations']} citations")
+            if p["open_access"]:
+                tags.append("🟢 Open access")
+            st.caption("  ·  ".join(tags))
+            if p["abstract"]:
+                with st.expander("Abstract"):
+                    st.write(p["abstract"])
+            b1, b2, _ = st.columns([1, 2, 4])
+            if p["pdf"]:
+                b1.link_button("PDF", p["pdf"])
+            if b2.button("➕ Add to reading list", key=f"sv{i}"):
+                if db.q("SELECT 1 FROM papers WHERE course_id=? AND title=?", (course["id"], p["title"])):
+                    st.toast("Already in the reading list")
+                else:
+                    db.run("INSERT INTO papers(course_id,title,authors,year,venue,url,pdf,added_by) VALUES(?,?,?,?,?,?,?,?)",
+                           (course["id"], p["title"], p["authors"], p["year"], p["venue"], p["url"], p["pdf"], u["id"]))
+                    st.toast("Added to reading list")
+
+    st.divider()
+    st.subheader("📚 Course reading list (visible to students)")
+    lst = db.q("SELECT * FROM papers WHERE course_id=? ORDER BY id DESC", (course["id"],))
+    if not lst:
+        st.caption("No papers saved yet. Use ➕ Add to reading list above.")
+    for r in lst:
+        a, b = st.columns([6, 1])
+        a.markdown(f"[{r['title']}]({r['url']})  \n<small>{r['authors']} · {r['year']}</small>", unsafe_allow_html=True)
+        if b.button("Remove", key=f"rm{r['id']}"):
+            db.run("DELETE FROM papers WHERE id=?", (r["id"],)); st.rerun()
