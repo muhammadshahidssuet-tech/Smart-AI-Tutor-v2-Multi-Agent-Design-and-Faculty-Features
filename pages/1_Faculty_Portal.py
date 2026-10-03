@@ -1,5 +1,5 @@
 import json, streamlit as st, pandas as pd
-import db, agents, ui, reports, scholar
+import db, agents, ui, reports, scholar, analytics
 
 ui.setup("Faculty")
 
@@ -37,7 +37,7 @@ if st.sidebar.button("Load demo data"):
 strict = st.sidebar.toggle("Strict mode (course material only)", bool(course["strict"]))
 db.run("UPDATE courses SET strict=? WHERE id=?", (int(strict), course["id"]))
 
-t1, t2, t3, t4 = st.tabs(["📂 Materials", "📝 Quiz Approval", "📊 Class Analytics", "🔎 Research Papers"])
+t1, t2, t3, t5, t4 = st.tabs(["📂 Materials", "📝 Quiz Approval", "📊 Class Analytics", "🤖 AI Insights", "🔎 Research Papers"])
 
 with t1:
     files = st.file_uploader("Upload lectures (PDF, PPTX, DOCX, TXT)", accept_multiple_files=True,
@@ -216,3 +216,18 @@ with t4:
         a.markdown(f"[{r['title']}]({r['url']})  \n<small>{r['authors']} · {r['year']}</small>", unsafe_allow_html=True)
         if b.button("Remove", key=f"rm{r['id']}"):
             db.run("DELETE FROM papers WHERE id=?", (r["id"],)); st.rerun()
+
+with t5:
+    st.subheader("🤖 AI insights for this course")
+    st.caption("The Analytics Agent turns chats and quiz results into written findings. "
+               "Student names are replaced with codes (S1, S2...) before analysis and restored here.")
+    key = f"ci_{course['id']}"
+    if st.button("Generate class insights", type="primary", key="ci_go"):
+        with st.spinner("Analytics Agent is reading class activity..."):
+            try:
+                st.session_state[key] = analytics.class_insights(course["id"])
+            except Exception as e:
+                st.error(f"Could not generate insights: {e}")
+    if st.session_state.get(key):
+        st.markdown(st.session_state[key])
+        st.download_button("⬇ Download insights (Markdown)", st.session_state[key], "class_insights.md", key="ci_dl")
