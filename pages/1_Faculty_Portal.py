@@ -1,7 +1,6 @@
 import json, streamlit as st, pandas as pd
 import db, agents, ui, reports, scholar, analytics
 
-ui.setup("Faculty")
 
 db.init()
 u = st.session_state.get("user")
