@@ -21,28 +21,40 @@ if PG:
 
     @st.cache_resource
     def _pool(url):
-        return psycopg2.pool.ThreadedConnectionPool(1, 5, url, connect_timeout=15)
+        return psycopg2.pool.ThreadedConnectionPool(
+            1, 10, url, connect_timeout=15,
+            keepalives=1, keepalives_idle=30, keepalives_interval=10, keepalives_count=3)
 
     def _exec(sql, args, want):
-        for attempt in (1, 2):                      # retry once if the cloud DB dropped an idle connection
-            pool = _pool(URL); conn = pool.getconn()
+        last = None
+        for _ in range(3):
+            pool = _pool(URL); conn = None; bad = False
             try:
+                conn = pool.getconn()
                 conn.autocommit = True
                 with conn.cursor(cursor_factory=RealDictCursor) as cur:
                     cur.execute(sql, args)
                     if want == "rows":
-                        out = [dict(r) for r in cur.fetchall()]
-                    else:
-                        out = cur.fetchone()["id"] if cur.description else None
-                pool.putconn(conn)
-                return out
-            except (psycopg2.OperationalError, psycopg2.InterfaceError):
-                pool.putconn(conn, close=True)
-                if attempt == 2:
+                        return [dict(r) for r in cur.fetchall()]
+                    return cur.fetchone()["id"] if cur.description else None
+            except psycopg2.pool.PoolError as e:        # pool exhausted -> rebuild it and retry
+                last = e
+                try:
+                    pool.closeall()
+                except Exception:
+                    pass
+                _pool.clear(); conn = None
+            except (psycopg2.OperationalError, psycopg2.InterfaceError) as e:
+                if conn is None:                         # could not connect at all
                     raise
-            except Exception:
-                pool.putconn(conn)
-                raise
+                last = e; bad = True                     # dropped idle connection -> retry on a fresh one
+            finally:                                     # ALWAYS hand the connection back
+                if conn is not None:
+                    try:
+                        pool.putconn(conn, close=bad or bool(conn.closed))
+                    except Exception:
+                        pass
+        raise last
 
     def q(sql, args=()):
         return _exec(sql.replace("?", "%s"), args, "rows")
@@ -75,16 +87,21 @@ CREATE TABLE IF NOT EXISTS chunks(id {PK}, course_id INTEGER, source TEXT, page 
 CREATE TABLE IF NOT EXISTS quizzes(id {PK}, course_id INTEGER, topic TEXT, data TEXT, approved INTEGER DEFAULT 0);
 CREATE TABLE IF NOT EXISTS attempts(id {PK}, user_id INTEGER, course_id INTEGER, topic TEXT, correct INTEGER, total INTEGER, quiz_id INTEGER, answers TEXT);
 CREATE TABLE IF NOT EXISTS papers(id {PK}, course_id INTEGER, title TEXT, authors TEXT, year INTEGER, venue TEXT, url TEXT, pdf TEXT, added_by INTEGER);
+CREATE TABLE IF NOT EXISTS plans(id {PK}, user_id INTEGER, course_id INTEGER, exam_date TEXT, kind TEXT, data TEXT);
 CREATE TABLE IF NOT EXISTS chats(id {PK}, user_id INTEGER, course_id INTEGER, question TEXT, grounded INTEGER);
 """
 
+@st.cache_resource(show_spinner=False)
+def _init_pg(url):
+    _exec(SCHEMA.format(PK="SERIAL PRIMARY KEY"), (), "none")   # all tables in ONE round trip
+    return True
+
 def init():
-    pk = "SERIAL PRIMARY KEY" if PG else "INTEGER PRIMARY KEY"
-    for stmt in SCHEMA.format(PK=pk).split(";"):
-        if stmt.strip():
-            if PG:
-                _exec(stmt, (), "none")
-            else:
+    if PG:
+        _init_pg(URL)                                           # runs once per server start, not every click
+    else:
+        for stmt in SCHEMA.format(PK="INTEGER PRIMARY KEY").split(";"):
+            if stmt.strip():
                 with _c() as c:
                     c.execute(stmt)
     if not PG:      # upgrade older local SQLite files
