@@ -1,5 +1,6 @@
 import json, streamlit as st, pandas as pd
-import db, agents, ui
+import datetime as dt
+import db, agents, ui, planner, analytics
 
 ui.setup("Student")
 
@@ -48,7 +49,7 @@ st.info(f"📘 **{course['name']}**  |  Instructor: **{course['teacher']}**  |  
 mode = st.sidebar.radio("Tutor mode", ["Simple", "Step-by-step", "Socratic"])
 lang = st.sidebar.selectbox("Language", ["English", "Urdu", "Roman Urdu"])
 
-t1, t2, t3, t4 = st.tabs(["💬 Tutor Chat", "📝 Quizzes", "📊 My Progress", "📚 Reading List"])
+t1, t2, t3, t5, t4 = st.tabs(["💬 Tutor Chat", "📝 Quizzes", "📊 My Progress", "🗓️ Study Planner", "📚 Reading List"])
 
 with t1:
     key = f"hist_{course['id']}"
@@ -135,6 +136,18 @@ with t3:
     else:
         st.info("Take and submit a quiz in the Quizzes tab to see your progress here.")
 
+    st.divider()
+    st.subheader("🤖 AI insights about my learning")
+    ikey = f"si_{course['id']}"
+    if st.button("Generate my insights", key="si_go"):
+        with st.spinner("Analytics Agent is reading your activity..."):
+            try:
+                st.session_state[ikey] = analytics.student_insights(u["id"], course["id"])
+            except Exception as e:
+                st.error(f"Could not generate insights: {e}")
+    if st.session_state.get(ikey):
+        st.markdown(st.session_state[ikey])
+
 with t4:
     st.subheader("Recommended research papers")
     lst = db.q("SELECT * FROM papers WHERE course_id=? ORDER BY id DESC", (course["id"],))
@@ -146,3 +159,38 @@ with t4:
             st.caption(f"{r['authors']} · {r['year']}" + (f" · {r['venue']}" if r["venue"] else ""))
             if r["pdf"]:
                 st.link_button("PDF", r["pdf"])
+
+with t5:
+    st.subheader("🗓️ Smart study planner")
+    st.caption("The Planner Agent builds a day-by-day plan around your weak topics (up to 14 days).")
+    mastery = planner.topic_mastery(u["id"], course["id"])
+    if mastery:
+        st.write("**Your topic mastery** (lowest first)")
+        st.dataframe(pd.DataFrame(mastery, columns=["Topic", "Mastery %"]), hide_index=True, width="stretch")
+    else:
+        st.info("No quiz results yet, so the plan will cover the course topics evenly. Take a quiz for a personalised plan.")
+    kind_label = st.radio("Plan type", ["Exam preparation", "Weekly study schedule"], horizontal=True, key="pl_kind")
+    c1, c2 = st.columns(2)
+    exam = c1.date_input("Exam date", value=dt.date.today() + dt.timedelta(days=14), min_value=dt.date.today(),
+                         disabled=(kind_label != "Exam preparation"), key="pl_exam")
+    hrs = c2.slider("Study hours per day", 0.5, 6.0, 2.0, 0.5, key="pl_hrs")
+    if st.button("✨ Generate my plan", type="primary", key="pl_go"):
+        with st.spinner("Planner Agent is building your schedule..."):
+            try:
+                kind = "exam" if kind_label == "Exam preparation" else "week"
+                planner.save_plan(u["id"], course["id"], planner.build_plan(course, mastery, kind, exam, hrs))
+            except Exception as e:
+                st.error(f"Could not build the plan: {e}")
+    plan = planner.load_plan(u["id"], course["id"])
+    if plan:
+        if plan.get("summary"):
+            st.success(plan["summary"])
+        st.caption("Focus topics: " + ", ".join(plan["topics"]) + (f"  |  Exam date: {plan['exam_date']}" if plan.get("exam_date") else ""))
+        for d in plan["days"]:
+            with st.container(border=True):
+                a, b = st.columns([1, 4])
+                a.markdown(f"**Day {d['day']}**  \n{d['date']}  \n⏱ {d['minutes']} min")
+                b.markdown(f"**{d['focus']}**\n\n" + "\n".join(f"- {t}" for t in d["tasks"]))
+        csv = pd.DataFrame([{"Day": d["day"], "Date": d["date"], "Focus": d["focus"],
+                             "Tasks": " | ".join(d["tasks"]), "Minutes": d["minutes"]} for d in plan["days"]]).to_csv(index=False)
+        st.download_button("⬇ Download plan (CSV)", csv, "study_plan.csv", key="pl_dl")
