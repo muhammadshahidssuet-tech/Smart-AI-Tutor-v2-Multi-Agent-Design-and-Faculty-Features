@@ -2,7 +2,6 @@ import json, streamlit as st, pandas as pd
 import datetime as dt
 import db, agents, ui, planner, analytics
 
-ui.setup("Student")
 
 db.init()
 u = st.session_state.get("user")
