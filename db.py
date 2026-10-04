@@ -2,7 +2,7 @@
 - If DATABASE_URL is set in Streamlit Secrets  -> permanent PostgreSQL (e.g. Supabase, free).
 - Otherwise                                     -> local SQLite file (temporary on Streamlit Cloud).
 """
-import sqlite3, hashlib, random, string
+import sqlite3, hashlib, random, string, time
 import streamlit as st
 
 def _url():
@@ -25,12 +25,25 @@ if PG:
             1, 10, url, connect_timeout=15,
             keepalives=1, keepalives_idle=30, keepalives_interval=10, keepalives_count=3)
 
+    _LAST = {}                                       # when each pooled connection was last used
+
+    def _checkout(pool):
+        """Get a connection; throw away ones that sat idle (the cloud pooler silently drops them)."""
+        for _ in range(3):
+            conn = pool.getconn()
+            idle = time.time() - _LAST.get(id(conn), time.time())
+            if conn.closed or idle > 20:
+                pool.putconn(conn, close=True)
+                continue
+            return conn
+        return pool.getconn()
+
     def _exec(sql, args, want):
         last = None
-        for _ in range(3):
+        for _ in range(4):
             pool = _pool(URL); conn = None; bad = False
             try:
-                conn = pool.getconn()
+                conn = _checkout(pool)
                 conn.autocommit = True
                 with conn.cursor(cursor_factory=RealDictCursor) as cur:
                     cur.execute(sql, args)
@@ -44,13 +57,19 @@ if PG:
                 except Exception:
                     pass
                 _pool.clear(); conn = None
-            except (psycopg2.OperationalError, psycopg2.InterfaceError) as e:
+            except psycopg2.Error as e:
                 if conn is None:                         # could not connect at all
                     raise
-                last = e; bad = True                     # dropped idle connection -> retry on a fresh one
+                broken = (isinstance(e, (psycopg2.OperationalError, psycopg2.InterfaceError))
+                          or type(e) is psycopg2.DatabaseError or bool(conn.closed))
+                if not broken:                           # a real SQL problem: show it, do not retry
+                    raise
+                last = e; bad = True                     # dead connection -> retry on a fresh one
             finally:                                     # ALWAYS hand the connection back
                 if conn is not None:
                     try:
+                        if not bad:
+                            _LAST[id(conn)] = time.time()
                         pool.putconn(conn, close=bad or bool(conn.closed))
                     except Exception:
                         pass
